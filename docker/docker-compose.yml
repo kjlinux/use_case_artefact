@@ -1,0 +1,161 @@
+x-airflow-common: &airflow-common
+  build:
+    context: ./airflow
+    dockerfile: Dockerfile
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow:5432/airflow
+    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+  volumes:
+    - ../dags:/opt/airflow/dags
+    - ../src:/opt/airflow/src
+    - airflow-logs:/opt/airflow/logs
+  depends_on:
+    postgres-airflow:
+      condition: service_healthy
+
+services:
+
+  postgres:
+    image: postgres:16
+    container_name: artefact-postgres
+    environment:
+      POSTGRES_DB: fashion_store
+      POSTGRES_USER: ${PG_USER:-fashion}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-fashion123}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fashion -d fashion_store"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: artefact-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin123}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio-init:
+    image: quay.io/minio/mc:latest
+    container_name: artefact-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
+      mc mb --ignore-existing local/folder-source;
+      mc cp /data/fashion_store_sales.csv local/folder-source/fashion_store_sales.csv;
+      echo 'Bucket folder-source created and CSV uploaded';
+      exit 0;
+      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin123}
+    volumes:
+      - ../data:/data
+
+  postgres-airflow:
+    image: postgres:16
+    container_name: artefact-postgres-airflow
+    environment:
+      POSTGRES_DB: airflow
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+    volumes:
+      - pgdata-airflow:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: artefact-airflow-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username admin \
+          --password admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com || true
+        airflow connections add 'postgres_fashion' \
+          --conn-type 'postgres' \
+          --conn-host 'postgres' \
+          --conn-schema 'fashion_store' \
+          --conn-login '${PG_USER:-fashion}' \
+          --conn-password '${PG_PASSWORD:-fashion123}' \
+          --conn-port '5432' || true
+        airflow connections add 'minio_s3' \
+          --conn-type 'aws' \
+          --conn-extra '{"endpoint_url": "http://minio:9000", "aws_access_key_id": "${MINIO_ACCESS_KEY:-minioadmin}", "aws_secret_access_key": "${MINIO_SECRET_KEY:-minioadmin123}"}' || true
+        airflow variables set 'minio_bucket' 'folder-source'
+        airflow variables set 'minio_csv_key' 'fashion_store_sales.csv'
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+    restart: "no"
+
+  airflow-api-server:
+    <<: *airflow-common
+    container_name: artefact-airflow-api-server
+    command: api-server
+    ports:
+      - "8080:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: always
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: artefact-airflow-scheduler
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    restart: always
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    container_name: artefact-airflow-dag-processor
+    command: dag-processor
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    restart: always
+
+volumes:
+  pgdata:
+  minio-data:
+  pgdata-airflow:
+  airflow-logs:
