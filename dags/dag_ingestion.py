@@ -53,12 +53,13 @@ with DAG(
     @task()
     def transform(csv_json, **context):
         import pandas as pd
+        import io
         from datetime import datetime as dt
 
         date_str = context["params"].get("ingestion_date", "20250616")
         target_date = dt.strptime(date_str, "%Y%m%d").date()
 
-        df = pd.read_json(csv_json, orient="records")
+        df = pd.read_json(io.StringIO(csv_json), orient="records")
         df["sale_date"] = pd.to_datetime(df["sale_date"]).dt.date
         filtered = df[df["sale_date"] == target_date].copy()
 
@@ -112,6 +113,7 @@ with DAG(
     @task()
     def load_to_postgres(tables_json, **context):
         import pandas as pd
+        import io
         from airflow.providers.postgres.hooks.postgres import PostgresHook
 
         if tables_json.get("empty"):
@@ -135,7 +137,7 @@ with DAG(
 
             maps = {}
             for table, (id_col, name_col) in lookup_tables.items():
-                df = pd.read_json(tables_json[table], orient="records")
+                df = pd.read_json(io.StringIO(tables_json[table]), orient="records")
                 for _, row in df.iterrows():
                     cur.execute(
                         f"INSERT INTO {table} ({name_col}) VALUES (%s) ON CONFLICT ({name_col}) DO NOTHING",
@@ -144,7 +146,7 @@ with DAG(
                 cur.execute(f"SELECT {id_col}, {name_col} FROM {table}")
                 maps[table] = {r[1]: r[0] for r in cur.fetchall()}
 
-            channels_df = pd.read_json(tables_json["channels"], orient="records")
+            channels_df = pd.read_json(io.StringIO(tables_json["channels"]), orient="records")
             for _, row in channels_df.iterrows():
                 cur.execute(
                     "INSERT INTO channels (channel_name, campaign_name) VALUES (%s, %s) "
@@ -154,7 +156,7 @@ with DAG(
             cur.execute("SELECT channel_id, channel_name FROM channels")
             channel_map = {r[1]: r[0] for r in cur.fetchall()}
 
-            customers_df = pd.read_json(tables_json["customers"], orient="records")
+            customers_df = pd.read_json(io.StringIO(tables_json["customers"]), orient="records")
             for _, row in customers_df.iterrows():
                 cur.execute(
                     "INSERT INTO customers "
@@ -174,7 +176,7 @@ with DAG(
                     ),
                 )
 
-            products_df = pd.read_json(tables_json["products"], orient="records")
+            products_df = pd.read_json(io.StringIO(tables_json["products"]), orient="records")
             for _, row in products_df.iterrows():
                 cur.execute(
                     "INSERT INTO products "
@@ -193,7 +195,7 @@ with DAG(
                     ),
                 )
 
-            sales_df = pd.read_json(tables_json["sales"], orient="records")
+            sales_df = pd.read_json(io.StringIO(tables_json["sales"]), orient="records")
             for _, row in sales_df.iterrows():
                 cur.execute(
                     "INSERT INTO sales (sale_id, sale_date, customer_id, channel_id) "
@@ -207,7 +209,7 @@ with DAG(
                     ),
                 )
 
-            items_df = pd.read_json(tables_json["sale_items"], orient="records")
+            items_df = pd.read_json(io.StringIO(tables_json["sale_items"]), orient="records")
             for _, row in items_df.iterrows():
                 cur.execute(
                     "INSERT INTO sale_items "

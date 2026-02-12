@@ -2,7 +2,7 @@ import os
 import psycopg2
 import pandas as pd
 
-from src.utils.logger import setup_logger
+from ..utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
@@ -27,7 +27,7 @@ LOOKUP_NAME_MAP = {
 
 def get_connection():
     return psycopg2.connect(
-        host=os.getenv("PG_HOST", "localhost"),
+        host=os.getenv("PG_HOST", "postgres"),
         port=os.getenv("PG_PORT", "5432"),
         dbname=os.getenv("PG_DB", "fashion_store"),
         user=os.getenv("PG_USER", "fashion"),

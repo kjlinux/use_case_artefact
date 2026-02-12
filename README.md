@@ -1,16 +1,16 @@
 # Challenge Data Engineer - Artefact CI
 
-Pipeline de donnees pour les ventes d'un site e-commerce de mode. Le projet couvre l'analyse exploratoire, la modelisation relationnelle (3FN/DKNF), l'implementation SQL, le deploiement Docker (PostgreSQL + Minio), un script d'ingestion Python idempotent, et l'orchestration Airflow 3.x.
+Pipeline de données pour les ventes d'un site e-commerce de mode. Le projet couvre l'analyse exploratoire, la modélisation relationnelle (3FN/DKNF), l'implémentation SQL, le déploiement Docker (PostgreSQL + Minio), un script d'ingestion Python idempotent, et l'orchestration Airflow 3.
 
 ## Architecture
 
 ```
-CSV (Minio) --> Script Python --> PostgreSQL (11 tables DKNF) --> Vue etoile
+CSV (Minio) --> Script Python --> PostgreSQL (11 tables DKNF) --> Vue étoile
                     |
               Airflow DAG (meme logique)
 ```
 
-Le fichier CSV source est stocke dans un bucket Minio (`folder-source`). Le script d'ingestion lit le CSV, filtre par date, eclate les donnees en tables normalisees, et les charge dans PostgreSQL avec des upserts idempotents.
+Le fichier CSV source est stocké dans un bucket Minio (`folder-source`). Le script d'ingestion lit le CSV, filtre par date, éclate les données en tables normalisées, et les charge dans PostgreSQL.
 
 ## Structure du projet
 
@@ -20,19 +20,19 @@ use_case_artefact/
 ├── .env.example
 ├── .gitignore
 ├── requirements.txt
-├── data/                          Donnees sources
+├── data/                          Données sources
 │   └── fashion_store_sales.csv
 ├── notebooks/                     Analyse exploratoire
 │   └── 01_analyse_exploratoire.ipynb
-├── docs/                          Documentation modelisation
+├── docs/                          Documentation modélisation
 │   └── modelisation.md
 ├── sql/                           Scripts SQL
 │   ├── 01_create_dknf_tables.sql
 │   └── 02_create_star_schema_view.sql
 ├── docker/                        Infrastructure
 │   ├── docker-compose.yml
-│   ├── postgres/init/             Init auto des tables PG
-│   └── airflow/                   Image Airflow custom
+│   ├── postgres/init/             Init automatique des tables PG
+│   └── airflow/                   Image Airflow
 ├── src/                           Code d'ingestion
 │   ├── main.py
 │   ├── ingestion/
@@ -43,7 +43,6 @@ use_case_artefact/
 │       └── logger.py
 ├── dags/                          DAG Airflow
 │   └── dag_ingestion.py
-└── tests/                         Tests (bonus)
 ```
 
 ## Pre-requis
@@ -68,31 +67,32 @@ docker compose up -d
 ```
 
 Cela demarre :
-- **PostgreSQL** (port 5432) avec les tables DKNF creees automatiquement
-- **Minio** (API port 9000, console port 9001) avec le CSV uploade dans le bucket `folder-source`
-- **Airflow 3.x** (UI port 8080) avec les connexions et variables pre-configurees
 
-### 3. Verifier le deploiement
+- **PostgreSQL** (port 5432) avec les tables DKNF créées automatiquement
+- **Minio** (API port 9000, console port 9001) avec le CSV uploade dans le bucket `folder-source`
+- **Airflow 3** (UI port 8080) avec les connexions et variables pré-configurées
+
+### 3. Verifier le déploiement
 
 ```bash
-# Tables PostgreSQL creees
+# Tables PostgreSQL créées
 docker compose exec postgres psql -U fashion -d fashion_store -c "\dt"
 
-# CSV present dans Minio
-# Ouvrir http://localhost:9001 (minioadmin / minioadmin123)
+Ouvrir http://localhost:9001 (minioadmin / minioadmin123)
 ```
 
-### 4. Executer l'ingestion (script standalone)
+### 4. Exécuter l'ingestion (script standalone)
 
 ```bash
 docker compose exec airflow-scheduler python -m src.main 20250616
 ```
 
 Le script :
+
 - Lit le CSV depuis Minio
 - Filtre les lignes du 2025-06-16
-- Charge les donnees dans les 11 tables DKNF
-- Est idempotent (relancable sans creer de doublons)
+- Charge les données dans les 11 tables DKNF
+- Est idempotent (relancable sans créer de doublons)
 
 ### 5. Executer via Airflow
 
@@ -100,7 +100,7 @@ Le script :
 2. Activer le DAG `fashion_store_ingestion`
 3. Trigger avec les parametres : `{"ingestion_date": "20250617"}`
 
-### 6. Verifier les donnees
+### 6. Verifier les données
 
 ```bash
 docker compose exec postgres psql -U fashion -d fashion_store -c \
@@ -110,35 +110,24 @@ docker compose exec postgres psql -U fashion -d fashion_store -c \
   "SELECT * FROM v_star_schema LIMIT 5;"
 ```
 
-### 7. Arreter
+### 7. Arrêter
 
 ```bash
-docker compose down       # conserve les donnees
+docker compose down
 docker compose down -v    # reset complet
 ```
 
-## Modele de donnees
+## Modèle de données
 
 ### DKNF (11 tables)
 
-Tables de reference : `countries`, `categories`, `brands`, `colors`, `sizes`, `age_ranges`, `channels`
+Tables de référence : `countries`, `categories`, `brands`, `colors`, `sizes`, `age_ranges`, `channels`
 
-Tables entites : `customers`, `products`, `sales`, `sale_items`
+Tables entités : `customers`, `products`, `sales`, `sale_items`
 
-Les champs derives (unit_price, item_total, discount_percent, discounted, total_amount) ne sont pas stockes. Ils sont recalcules a la volee par la vue `v_star_schema`.
+Les champs dérivés (unit_price, item_total, discount_percent, discounted, total_amount) ne sont pas stockés. Ils sont recalculés à la volée par la vue `v_star_schema`.
 
-Voir [docs/modelisation.md](docs/modelisation.md) pour la justification complete des choix de normalisation.
-
-## Choix techniques
-
-| Choix | Justification |
-|-------|--------------|
-| 2 instances PostgreSQL | Separation donnees metier / metadata Airflow |
-| DKNF plutot que 3FN seulement | Elimine les champs derives, enforce la qualite via le schema |
-| ON CONFLICT pour l'idempotence | Relancable sans doublons ni erreurs |
-| Transaction unique | Rollback atomique si une etape echoue |
-| Minio pour le stockage | Simule S3 en local, realiste pour la production |
-| Airflow Connections/Variables | Pas de credentials en dur dans le code du DAG |
+Voir [docs/modelisation.md](docs/modelisation.md) pour la justification complète des choix de normalisation.
 
 ## Technologies
 
@@ -146,4 +135,4 @@ Voir [docs/modelisation.md](docs/modelisation.md) pour la justification complete
 - Minio (S3-compatible)
 - Docker / Docker Compose
 - Python 3, pandas, boto3, psycopg2
-- Apache Airflow 3.x
+- Apache Airflow 3
