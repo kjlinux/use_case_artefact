@@ -5,19 +5,24 @@ x-airflow-common: &airflow-common
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow:5432/airflow
-    AIRFLOW__CORE__FERNET_KEY: ''
-    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
-    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__FERNET_KEY: ""
+    AIRFLOW__CORE__INTERNAL_API_SECRET_KEY: "artefact_shared_secret_key_2026"
+    AIRFLOW__API_AUTH__JWT_SECRET: "artefact_shared_jwt_secret_2026"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: "/opt/airflow/simple_passwords.json"
+    AIRFLOW__CORE__INTERNAL_API_URL: "http://airflow-api-server:8080"
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://airflow-api-server:8080/execution/"
   volumes:
     - ../dags:/opt/airflow/dags
     - ../src:/opt/airflow/src
     - airflow-logs:/opt/airflow/logs
+    - ./airflow/simple_passwords.json:/opt/airflow/simple_passwords.json
   depends_on:
     postgres-airflow:
       condition: service_healthy
 
 services:
-
   postgres:
     image: postgres:16
     container_name: artefact-postgres
@@ -103,7 +108,7 @@ services:
           --firstname Admin \
           --lastname User \
           --role Admin \
-          --email admin@example.com || true
+          --email admin@nomail.com || true
         airflow connections add 'postgres_fashion' \
           --conn-type 'postgres' \
           --conn-host 'postgres' \
